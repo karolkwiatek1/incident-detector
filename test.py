@@ -49,7 +49,7 @@ def plot_predictions(metrics, y_test, y_pred, split_index, W):
     plt.tight_layout()
     plt.show()
 
-def generate_data(n_steps=2000, anomaly_prob=0.03, signal_length=10):
+def generate_data(n_steps=5000, anomaly_prob=0.03, signal_length=10):
     np.random.seed(0)
 
     # base noise
@@ -82,10 +82,23 @@ def create_sliding_windows(metrics, labels, W, H):
     for i in range(n_steps - W - H + 1):
         window_features = metrics[i : i + W]
         
+        mean_val = np.mean(window_features)
+        std_val = np.std(window_features)
+        min_val = np.min(window_features)
+        max_val = np.max(window_features)
+        
+        delta = window_features[-1] - window_features[0]
+        
+        enhanced_features = np.concatenate([
+            window_features, 
+            [mean_val, std_val, min_val, max_val, delta]
+        ])
+        
+        
         future_labels = labels[i + W : i + W + H]
         target = 1 if np.any(future_labels == 1) else 0
         
-        X.append(window_features)
+        X.append(enhanced_features)
         y.append(target)
     
     return np.array(X), np.array(y)
