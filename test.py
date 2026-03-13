@@ -1,9 +1,12 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.metrics import f1_score
+from sklearn.metrics import fbeta_score
+from sklearn.base import clone
 
 def plot_predictions(metrics, y_test, y_pred, split_index, W):
     plt.figure(figsize=(15, 5))
@@ -153,9 +156,14 @@ def create_sliding_windows(metrics, labels, W, H, enhance = 0):
 
 metrics, labels = generate_data()
 
-best_f1 = 0
+best_f2 = 0
 best_params = {}
 H = 3
+
+models = {
+    'random forest': RandomForestClassifier(n_estimators=100, class_weight='balanced', random_state=0),
+    'gradient boosting': GradientBoostingClassifier(n_estimators=100, random_state=0)
+}
 
 for W in range(5, 31, 5):
     for d in range(0, 3):
@@ -171,32 +179,35 @@ for W in range(5, 31, 5):
         scaler = StandardScaler()
         X_train_scaled = scaler.fit_transform(X_train)
         X_val_scaled = scaler.transform(X_val)
-
-        clf = RandomForestClassifier(n_estimators=100, class_weight='balanced', random_state=0)
-        clf.fit(X_train_scaled, y_train)
-
-        y_val_probs = clf.predict_proba(X_val_scaled)[:, 1]
         
-        for threshold in [0.4, 0.5, 0.6, 0.7, 0.8]:
-            y_val_pred = (y_val_probs >= threshold).astype(int)
+        for model_name, base_clf in models.items():
+            clf = clone(base_clf)
+            clf.fit(X_train_scaled, y_train)
+
+            y_val_probs = clf.predict_proba(X_val_scaled)[:, 1]
             
-            current_f1 = f1_score(y_val, y_val_pred, zero_division=0)
-            
-            if current_f1 > best_f1:
-                best_f1 = current_f1
-                best_params = {'W': W, 'H': H, 'd': d, 'threshold': threshold, 'model': clf, 'scaler': scaler}
+            for threshold in [0.4, 0.5, 0.6, 0.7, 0.8]:
+                y_val_pred = (y_val_probs >= threshold).astype(int)
+                
+                current_f2 = fbeta_score(y_val, y_val_pred, beta=2.0, zero_division=0)
+                #current_f1 = f1_score(y_val, y_val_pred, zero_division=0)
+                
+                if current_f2 > best_f2:
+                    best_f2 = current_f2
+                    best_params = {'W': W, 'H': H, 'd': d, 'threshold': threshold, 'model': clf, 'model_name': model_name, 'scaler': scaler}
 
 best_W = best_params['W']
 best_H = best_params['H']
 best_d = best_params['d']
 best_threshold = best_params['threshold']
 best_model = best_params['model']
+best_model_name = best_params['model_name']
 best_scaler = best_params['scaler']
 
 
 
 print("optimal parameters:")
-print(f"W: {best_W}\n  H: {best_H}\n d: {best_d}\n threshold: {best_threshold}")
+print(f"model: {best_model_name}\n W: {best_W}\n  H: {best_H}\n d: {best_d}\n threshold: {best_threshold}")
 
 X_best, y_best, features = create_sliding_windows(metrics, labels, best_W, best_H, best_d)
 
