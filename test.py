@@ -73,11 +73,16 @@ def generate_data(n_steps=5000, anomaly_prob=0.03, signal_length=10):
             if np.random.rand() < 0.66:
                 # if the incident is real, it can differ in length
                 duration = np.random.randint(3,10)
-                labels[i : i + duration] = 1
-                metrics[i : i + duration] += np.random.uniform(30,40)
+                
+                # checking if index doesnt go out of the array bounds
+                end = min(i + duration, n_steps)
+                
+                labels[i : end] = 1
+                metrics[i : end] += np.random.uniform(30,40)
                 i += duration
             else:
-                metrics[i : i + 3] += np.random.uniform(10,20)
+                end = min(i + 3, n_steps)
+                metrics[i : end] += np.random.uniform(10,20)
             
             # skip a few steps so that incidents dont overlap
             i += signal_length 
