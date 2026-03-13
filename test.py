@@ -91,8 +91,8 @@ def generate_data(n_steps=5000, anomaly_prob=0.03, signal_length=10):
             
     return metrics, labels
 
-def create_sliding_windows(metrics, labels, W, H):
-    X, y = [], []
+def create_sliding_windows(metrics, labels, W, H, enhance = 0):
+    X, y, features = [], [], []
     n_steps = len(metrics)
     
     for i in range(n_steps - W - H + 1):
@@ -105,11 +105,38 @@ def create_sliding_windows(metrics, labels, W, H):
         
         delta = window_features[-1] - window_features[0]
         
-        enhanced_features = np.concatenate([
-            window_features, 
-            [mean_val, std_val, min_val, max_val, delta]
-        ])
+        diffs = np.diff(window_features)
         
+        diff_mean = np.mean(diffs)
+        diff_std = np.std(diffs)
+        diff_max = np.max(diffs)
+        diff_min = np.min(diffs)
+        
+        x = np.arange(len(window_features))
+        slope = np.polyfit(x, window_features, 1)[0]
+        
+        distance_from_max = window_features[-1] - np.max(window_features)
+        distance_from_min = window_features[-1] - np.min(window_features)
+        
+        # no enhancements
+        if enhance == 0:
+            enhanced_features = window_features
+        
+        # all enhancements
+        elif enhance == 1:
+            enhanced_features = np.concatenate([
+                window_features, 
+                [mean_val, std_val, min_val, max_val, delta, diff_mean, diff_std, diff_max, diff_min, slope, distance_from_max, distance_from_min]
+            ])
+            features += ["mean", "std", "min", "max", "delta", "diff_mean", "diff_std", "diff_max", "diff_min", "slope", "distance_from_max", "distance_from_min"]
+            
+        # enhancements with the most importance
+        elif enhance == 2:
+            enhanced_features = np.concatenate([
+                window_features, 
+                [std_val, delta, diff_mean, slope, distance_from_min]
+            ])
+            features += ["std", "delta", "diff_mean", "slope", "distance_from_min"]
         
         future_labels = labels[i + W : i + W + H]
         target = 1 if np.any(future_labels == 1) else 0
@@ -117,36 +144,57 @@ def create_sliding_windows(metrics, labels, W, H):
         X.append(enhanced_features)
         y.append(target)
     
-    return np.array(X), np.array(y)
+    return np.array(X), np.array(y), features
 
-W = 15
+W = 10
 H = 3
 
 metrics, labels = generate_data()
 
-X, y = create_sliding_windows(metrics, labels, W, H)
+for d in range(0, 3):
+    
+    X, y, features = create_sliding_windows(metrics, labels, W, H, d)
 
-# 80:20 split for train:test
-split_index = int(len(X) * 0.8)
+    # 80:20 split for train:test
+    split_index = int(len(X) * 0.8)
 
-X_train, X_test = X[:split_index], X[split_index:]
-y_train, y_test = y[:split_index], y[split_index:]
+    X_train, X_test = X[:split_index], X[split_index:]
+    y_train, y_test = y[:split_index], y[split_index:]
 
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train)
-X_test_scaled = scaler.transform(X_test)
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
 
-clf = RandomForestClassifier(n_estimators=100, class_weight='balanced', random_state=0)
-clf.fit(X_train_scaled, y_train)
+    clf = RandomForestClassifier(n_estimators=100, class_weight='balanced', random_state=0)
+    clf.fit(X_train_scaled, y_train)
 
-y_pred = clf.predict(X_test_scaled)
+    y_pred = clf.predict(X_test_scaled)
 
-print("raport:")
-print(classification_report(y_test, y_pred))
+    if d == 0:
+        print("sliding window not enhanced:")
+    else:
+        print("sliding window enhanced:")
+    
+    print("raport:")
+    print(classification_report(y_test, y_pred))
 
-print("confusion matrix:")
-print("TN, FP")
-print("FN, TP")
-print(confusion_matrix(y_test, y_pred))
+    print("confusion matrix:")
+    print("TN, FP")
+    print("FN, TP")
+    print(confusion_matrix(y_test, y_pred))
+    
+    print(X.shape)
+    
+    feature_names = [f"x{i}" for i in range(W)]
+    
+    feature_names += features
+
+    
+    importances = clf.feature_importances_
+    
+    for name, imp in zip(feature_names, importances):
+        print(f"{name:20s} {imp:.4f}")
+    
+    
 
 plot_predictions(metrics, y_test, y_pred, split_index, W)
