@@ -44,7 +44,7 @@ def plot_predictions(metrics, y_test, y_pred, split_index, W):
     plt.legend()
     plt.grid(True, linestyle="--", alpha=0.6)
     
-    plt.xlim(test_start_idx - 50, len(metrics))
+   # plt.xlim(test_start_idx - 50, len(metrics))
     
     plt.tight_layout()
     plt.show()
@@ -52,8 +52,13 @@ def plot_predictions(metrics, y_test, y_pred, split_index, W):
 def generate_data(n_steps=5000, anomaly_prob=0.03, signal_length=10):
     np.random.seed(0)
 
-    # base noise
-    metrics = np.random.normal(loc=50, scale=5, size=n_steps)
+    # simulating increasing trend and seasonal fluctuations 
+    t = np.arange(n_steps)
+    trend = 0.002 * t
+    seasonal = 5 * np.sin(2 * np.pi * t / 200)
+    noise = np.random.normal(0, 3, n_steps)
+    
+    metrics = 50 + trend + seasonal + noise
     labels = np.zeros(n_steps)
     
     i = signal_length
@@ -62,11 +67,17 @@ def generate_data(n_steps=5000, anomaly_prob=0.03, signal_length=10):
             
             # injecting a pattern before the incident
             for j in range(signal_length):
-                metrics[i - signal_length + j] += (j * 2) 
+                metrics[i - signal_length + j] += (j * np.random.uniform(1.0, 3.0)) 
                 
-            # incident
-            metrics[i] += 40
-            labels[i] = 1
+            # make about 1/3 of spikes false alarms
+            if np.random.rand() < 0.66:
+                # if the incident is real, it can differ in length
+                duration = np.random.randint(3,10)
+                labels[i : i + duration] = 1
+                metrics[i : i + duration] += np.random.uniform(30,40)
+                i += duration
+            else:
+                metrics[i : i + 3] += np.random.uniform(10,20)
             
             # skip a few steps so that incidents dont overlap
             i += signal_length 
