@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import f1_score
 
 def plot_predictions(metrics, y_test, y_pred, split_index, W):
     plt.figure(figsize=(15, 5))
@@ -95,6 +96,11 @@ def create_sliding_windows(metrics, labels, W, H, enhance = 0):
     X, y, features = [], [], []
     n_steps = len(metrics)
     
+    if enhance == 1:
+        features = ["mean", "std", "min", "max", "delta", "diff_mean", "diff_std", "diff_max", "diff_min", "slope", "distance_from_max", "distance_from_min"]
+    elif enhance == 2:
+        features = ["std", "delta", "diff_mean", "slope", "distance_from_min"]
+    
     for i in range(n_steps - W - H + 1):
         window_features = metrics[i : i + W]
         
@@ -128,7 +134,6 @@ def create_sliding_windows(metrics, labels, W, H, enhance = 0):
                 window_features, 
                 [mean_val, std_val, min_val, max_val, delta, diff_mean, diff_std, diff_max, diff_min, slope, distance_from_max, distance_from_min]
             ])
-            features += ["mean", "std", "min", "max", "delta", "diff_mean", "diff_std", "diff_max", "diff_min", "slope", "distance_from_max", "distance_from_min"]
             
         # enhancements with the most importance
         elif enhance == 2:
@@ -136,7 +141,6 @@ def create_sliding_windows(metrics, labels, W, H, enhance = 0):
                 window_features, 
                 [std_val, delta, diff_mean, slope, distance_from_min]
             ])
-            features += ["std", "delta", "diff_mean", "slope", "distance_from_min"]
         
         future_labels = labels[i + W : i + W + H]
         target = 1 if np.any(future_labels == 1) else 0
@@ -146,55 +150,85 @@ def create_sliding_windows(metrics, labels, W, H, enhance = 0):
     
     return np.array(X), np.array(y), features
 
-W = 10
-H = 3
 
 metrics, labels = generate_data()
 
-for d in range(0, 3):
-    
-    X, y, features = create_sliding_windows(metrics, labels, W, H, d)
+best_f1 = 0
+best_params = {}
+H = 3
 
-    # 80:20 split for train:test
-    split_index = int(len(X) * 0.8)
+for W in range(5, 31, 5):
+    for d in range(0, 3):
+        X, y, features = create_sliding_windows(metrics, labels, W, H, d)
 
-    X_train, X_test = X[:split_index], X[split_index:]
-    y_train, y_test = y[:split_index], y[split_index:]
+        # 60:20:20 split for train:validation:test
+        train_idx = int(len(X) * 0.6)
+        val_idx = int(len(X) * 0.8)
+        
+        X_train, y_train = X[:train_idx], y[:train_idx]
+        X_val, y_val = X[train_idx:val_idx], y[train_idx:val_idx]
 
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_val_scaled = scaler.transform(X_val)
 
-    clf = RandomForestClassifier(n_estimators=100, class_weight='balanced', random_state=0)
-    clf.fit(X_train_scaled, y_train)
+        clf = RandomForestClassifier(n_estimators=100, class_weight='balanced', random_state=0)
+        clf.fit(X_train_scaled, y_train)
 
-    y_pred = clf.predict(X_test_scaled)
+        y_val_probs = clf.predict_proba(X_val_scaled)[:, 1]
+        
+        for threshold in [0.4, 0.5, 0.6, 0.7, 0.8]:
+            y_val_pred = (y_val_probs >= threshold).astype(int)
+            
+            current_f1 = f1_score(y_val, y_val_pred, zero_division=0)
+            
+            if current_f1 > best_f1:
+                best_f1 = current_f1
+                best_params = {'W': W, 'H': H, 'd': d, 'threshold': threshold, 'model': clf, 'scaler': scaler}
 
-    if d == 0:
-        print("sliding window not enhanced:")
-    else:
-        print("sliding window enhanced:")
-    
-    print("raport:")
-    print(classification_report(y_test, y_pred))
+best_W = best_params['W']
+best_H = best_params['H']
+best_d = best_params['d']
+best_threshold = best_params['threshold']
+best_model = best_params['model']
+best_scaler = best_params['scaler']
 
-    print("confusion matrix:")
-    print("TN, FP")
-    print("FN, TP")
-    print(confusion_matrix(y_test, y_pred))
-    
-    print(X.shape)
-    
-    feature_names = [f"x{i}" for i in range(W)]
-    
-    feature_names += features
 
-    
-    importances = clf.feature_importances_
-    
-    for name, imp in zip(feature_names, importances):
-        print(f"{name:20s} {imp:.4f}")
-    
-    
 
-plot_predictions(metrics, y_test, y_pred, split_index, W)
+print("optimal parameters:")
+print(f"W: {best_W}\n  H: {best_H}\n d: {best_d}\n threshold: {best_threshold}")
+
+X_best, y_best, features = create_sliding_windows(metrics, labels, best_W, best_H, best_d)
+
+val_idx = int(len(X_best) * 0.8)
+X_test = X_best[val_idx:]
+y_test = y_best[val_idx:]
+
+X_test_scaled = best_scaler.transform(X_test)
+
+y_test_probs = best_model.predict_proba(X_test_scaled)[:, 1]
+y_test_pred = (y_test_probs >= best_threshold).astype(int)
+
+print("test set results:")
+print(classification_report(y_test, y_test_pred))
+
+print("confusion matrix:")
+print("TN, FP")
+print("FN, TP")
+print(confusion_matrix(y_test, y_test_pred))
+
+feature_names = [f"x{i+1}" for i in range(best_W)]
+feature_names += features
+
+importances = best_model.feature_importances_
+indices = np.argsort(importances)[::-1]
+
+print("features importance:")
+
+for i in range(len(indices)):
+    feature_name = feature_names[indices[i]]
+    importance = importances[indices[i]]
+    print(f"{i+1:2d}. {feature_name:<20}: {importance:.4f}")
+    
+plot_predictions(metrics, y_test, y_test_pred, val_idx, best_W)
+    
